@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Composite Lab">
+  <rect width="64" height="64" rx="14" fill="#20392f"/>
+  <g stroke="#d6ddba" stroke-width="2.4" stroke-linejoin="round">
+    <path d="M14 39.8 50 23 50 42.3 14 59Z" fill="#c8d59e"/>
+    <path d="M14 30.8 50 14 50 33.3 14 50Z" fill="#20392f"/>
+    <path d="M14 21.8 50 5 50 24.3 14 41Z" fill="#20392f"/>
+  </g>
+</svg>
