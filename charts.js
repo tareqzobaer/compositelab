@@ -21,18 +21,39 @@ function envelopeChart(el,curves,st,pt){
   s+='</g><text x="'+(W-R)+'" y="'+(H-4)+'" text-anchor="end">σ₁ (MPa)</text><text transform="translate(12 '+(T+ph/2)+') rotate(-90)" text-anchor="middle">σ₂ (MPa)</text>';
   el.innerHTML=s;
 }
-// Local ply stress through the laminate thickness. segs: [{z0,z1,v0,v1}], top of the laminate at the top of the chart.
-function profileChart(el,segs,title,cls){
-  const W=220,H=250,L=42,R=10,T=26,B=28,pw=W-L-R,ph=H-T-B,zmin=segs[0].z0,zmax=segs[segs.length-1].z1;
+// Ply stress through the thickness, drawn like the textbook figures: the thickness axis is vertical (top ply at the top),
+// stress is horizontal, arrows run from the axis to the stress value, the outline jumps at each ply interface, and plies
+// are numbered in circles. segs: [{n, z0, z1, v0, v1}]. Tension is filled warm and compression cool, split where the stress changes sign. The x axis lies on the middle surface.
+function profileChart(el,segs,title){
+  const W=220,H=250,L=42,R=26,T=26,B=28,pw=W-L-R,phh=H-T-B,zmin=segs[0].z0,zmax=segs[segs.length-1].z1,mk='parr-'+el.id;
   let vmax=Math.max(...segs.flatMap(g=>[Math.abs(g.v0),Math.abs(g.v1)]));if(vmax<1e-9)vmax=1;vmax*=1.1;
-  const X=v=>(L+pw*(v+vmax)/(2*vmax)).toFixed(2),Y=z=>(T+ph*(z-zmin)/(zmax-zmin)).toFixed(2);
-  let s='<text class="title" x="'+L+'" y="14">'+title+'</text>';
-  segs.forEach(g=>s+='<line class="grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(g.z0)+'" y2="'+Y(g.z0)+'"/>');
-  s+='<line class="grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+(T+ph)+'" y2="'+(T+ph)+'"/><line class="zero" x1="'+X(0)+'" x2="'+X(0)+'" y1="'+T+'" y2="'+(T+ph)+'"/>';
-  segs.forEach(g=>s+='<path class="'+cls+'" d="M'+X(g.v0)+','+Y(g.z0)+'L'+X(g.v1)+','+Y(g.z1)+'"/>');
-  s+='<text x="'+(L-5)+'" y="'+(T+4)+'" text-anchor="end">'+fmt(zmin,2)+'</text><text x="'+(L-5)+'" y="'+(T+ph+4)+'" text-anchor="end">'+fmt(zmax,2)+'</text><text x="'+(L-5)+'" y="'+(T+ph/2+4)+'" text-anchor="end">z</text>';
-  s+='<text x="'+L+'" y="'+(H-10)+'" text-anchor="start">'+fmt(-vmax,0)+'</text><text x="'+X(0)+'" y="'+(H-10)+'" text-anchor="middle">0</text><text x="'+(W-R)+'" y="'+(H-10)+'" text-anchor="end">'+fmt(vmax,0)+'</text>';
-  el.innerHTML=s;
+  const x0=L+pw/2,X=v=>L+pw*(v+vmax)/(2*vmax),Y=z=>T+phh*(z-zmin)/(zmax-zmin),f=v=>v.toFixed(1);
+  let s='<defs><marker id="'+mk+'" markerUnits="userSpaceOnUse" markerWidth="5" markerHeight="5" refX="4.4" refY="2.5" orient="auto"><path class="mh" d="M0 .6L4.4 2.5 0 4.4"/></marker></defs><text class="title" x="'+L+'" y="14">'+title+'</text>';
+  // ply fills between the axis and the stress, then the interface lines
+  segs.forEach(g=>{
+    const y0=Y(g.z0),y1=Y(g.z1),poly=(ya,va,yb,vb,k)=>'<path class="pf '+k+'" d="M'+f(x0)+','+f(ya)+'L'+f(X(va))+','+f(ya)+'L'+f(X(vb))+','+f(yb)+'L'+f(x0)+','+f(yb)+'Z"/>';
+    if(g.v0*g.v1<0){const t=g.v0/(g.v0-g.v1),yc=y0+(y1-y0)*t;s+=poly(y0,g.v0,yc,0,g.v0>0?'pos':'neg')+poly(yc,0,y1,g.v1,g.v1>0?'pos':'neg')}
+    else s+=poly(y0,g.v0,y1,g.v1,g.v0+g.v1>=0?'pos':'neg');
+  });
+  segs.forEach(g=>s+='<line class="grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+f(Y(g.z0))+'" y2="'+f(Y(g.z0))+'"/>');
+  s+='<line class="grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+f(T+phh)+'" y2="'+f(T+phh)+'"/>';
+  // stress arrows from the axis to the profile, a few per ply
+  segs.forEach(g=>{
+    const ph=Y(g.z1)-Y(g.z0),n=Math.max(1,Math.min(6,Math.round(ph/9)));
+    for(let k=0;k<n;k++){const t=(k+.5)/n,v=g.v0+(g.v1-g.v0)*t,y=Y(g.z0)+ph*t;if(Math.abs(X(v)-x0)>5)s+='<line class="pa" x1="'+f(x0)+'" y1="'+f(y)+'" x2="'+f(X(v))+'" y2="'+f(y)+'" marker-end="url(#'+mk+')"/>'}
+  });
+  // outline: each ply's line, joined by a horizontal step at the interface
+  let d='';segs.forEach((g,i)=>{d+=(i?'L':'M')+f(X(g.v0))+','+f(Y(g.z0))+'L'+f(X(g.v1))+','+f(Y(g.z1))});
+  s+='<path class="po" d="'+d+'"/><line class="zero" x1="'+f(x0)+'" x2="'+f(x0)+'" y1="'+T+'" y2="'+f(T+phh)+'"/>';
+  // x axis on the middle surface
+  const ym=Y(0);
+  s+='<line class="midl" x1="'+L+'" x2="'+(W-R)+'" y1="'+f(ym)+'" y2="'+f(ym)+'"/><text class="ax" x="'+(W-R-3)+'" y="'+f(ym-4)+'" text-anchor="end">x</text>';
+  // circled ply numbers on the right when the plies are tall enough
+  segs.forEach(g=>{const ph=Y(g.z1)-Y(g.z0);if(ph<13)return;const y=Y(g.z0)+ph/2;s+='<circle class="cn" cx="'+(W-R+13)+'" cy="'+f(y)+'" r="8"/><text class="cnt" x="'+(W-R+13)+'" y="'+f(y+3.5)+'" text-anchor="middle">'+g.n+'</text>'});
+  s+='<text x="'+(L-5)+'" y="'+(T+4)+'" text-anchor="end">'+fmt(zmin,2)+'</text><text x="'+(L-5)+'" y="'+(T+phh+4)+'" text-anchor="end">'+fmt(zmax,2)+'</text><text x="'+(L-5)+'" y="'+f(ym+4)+'" text-anchor="end">0</text>'+
+    '<line class="zax" x1="7" y1="'+(T+12)+'" x2="7" y2="'+(T+44)+'" marker-end="url(#'+mk+')"/><text class="ax" x="12" y="'+(T+34)+'">z</text>';
+  s+='<text x="'+L+'" y="'+(H-10)+'" text-anchor="start">'+fmt(-vmax,0)+'</text><text x="'+f(x0)+'" y="'+(H-10)+'" text-anchor="middle">0</text><text x="'+(W-R)+'" y="'+(H-10)+'" text-anchor="end">'+fmt(vmax,0)+'</text>';
+  el.classList.add('profig');el.innerHTML=s;
 }
 // Slide-style figure: hatched lamina, global x-y axes and local 1-2 axes rotated by theta (degrees, counterclockwise).
 function axesFigure(el,angle){
@@ -56,12 +77,12 @@ function axesFigure(el,angle){
 // Plies are numbered top to bottom, z points down from the middle surface, z_k is the lower face of ply k.
 function sideFigure(el,plies,r,first){
   // Ply heights are drawn in proportion to their thickness; the overall height depends only on the ply count.
-  const N=plies.length,avg=N<=8?40:N<=16?26:Math.max(7,Math.floor(330/N)),top=34,L=100,Wb=240,W=450,body=N*avg,H=top*2+body,mid=top+body/2,h=r.h,R=L+Wb,
+  const N=plies.length,avg=N<=8?40:N<=16?26:Math.max(7,Math.floor(330/N)),top=34,L=150,Wb=200,W=450,body=N*avg,H=top*2+body,mid=top+body/2,h=r.h,R=L+Wb,
     zk=k=>k<N?r.plies[k].z0:r.plies[N-1].z1,Y=z=>top+body*(z+h/2)/h,yk=k=>Y(zk(k)),sub=(k,v)=>'z<tspan class="sub" dy="3">'+k+'</tspan><tspan dy="-3"> = '+v+'</tspan>';
   let s='<defs><marker id="dimarr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse"><path class="ml" d="M0 0L7 3.5 0 7Z"/></marker></defs>';
   plies.forEach((pl,i)=>{
-    const a=pl.a,cls=a===0?'p0':Math.abs(a)===90?'p90':a>0?'ppos':'pneg',y=yk(i),ph=yk(i+1)-y;
-    s+='<rect class="sp '+cls+(i===first?' first':'')+'" x="'+L+'" y="'+y+'" width="'+Wb+'" height="'+ph+'"/>';
+    const a=pl.a,pct=Math.round(Math.min(90,Math.abs(a))/90*100),y=yk(i),ph=yk(i+1)-y;
+    s+='<rect class="sp'+(i===first?' first':'')+'" style="fill:color-mix(in srgb,var(--ply-hi) '+pct+'%,var(--ply-lo))" x="'+L+'" y="'+y+'" width="'+Wb+'" height="'+ph+'"/>';
     if(ph>=14){
       if(a===0)for(let yy=y+6;yy<y+ph-3;yy+=7)s+='<line class="fibl" x1="'+L+'" x2="'+R+'" y1="'+yy+'" y2="'+yy+'"/>';
       else if(Math.abs(a)===90)for(let yy=y+7;yy<y+ph-3;yy+=9)for(let xx=L+12;xx<R-4;xx+=15)s+='<circle class="fibd" cx="'+xx+'" cy="'+yy+'" r="2.2"/>';
@@ -75,11 +96,12 @@ function sideFigure(el,plies,r,first){
     const t=(i+1)+' · '+pl.a+'°'+(pl.mat?' '+MAT_SHORT[pl.mat]:''),y=yk(i)+ph/2,small=ph<18,pw=t.length*(small?5:6.2)+8,pH=small?ph-2:16;
     s+='<rect class="pill" x="'+(L+5)+'" y="'+(y-pH/2)+'" width="'+pw+'" height="'+pH+'" rx="2"/><text'+(small?' style="font-size:9px"':'')+' x="'+(L+9)+'" y="'+(y+(small?3:4))+'">'+t+'</text>';
   });
-  s+='<line class="midl" x1="'+(L-14)+'" x2="'+(R+4)+'" y1="'+mid+'" y2="'+mid+'"/><rect class="pill" x="'+(L+Wb/2-6)+'" y="'+(mid-9)+'" width="88" height="18" rx="3"/><text class="mid" x="'+(L+Wb/2-2)+'" y="'+(mid+4)+'">Middle surface</text>';
-  // coordinate axes on the middle surface: x to the right, z down
-  const gx=R-30,zl=Math.max(10,Math.min(40,body/2-6));
-  s+='<line class="gz" x1="'+gx+'" y1="'+mid+'" x2="'+(R-4)+'" y2="'+mid+'" marker-end="url(#dimarr)"/><line class="gz" x1="'+gx+'" y1="'+mid+'" x2="'+gx+'" y2="'+(mid+zl)+'" marker-end="url(#dimarr)"/>'+
-    '<text class="ax" x="'+(R-12)+'" y="'+(mid-6)+'">x</text><text class="ax" x="'+(gx+6)+'" y="'+(mid+zl-2)+'">z</text>';
+  // middle surface: dashed datum line, named in the left margin outside the block (one word above the line, one below)
+  s+='<line class="midl" x1="58" x2="'+(R+4)+'" y1="'+mid+'" y2="'+mid+'"/><text class="mid" x="'+(L-8)+'" y="'+(mid-5)+'" text-anchor="end">Middle</text><text class="mid" x="'+(L-8)+'" y="'+(mid+13)+'" text-anchor="end">surface</text>';
+  // coordinate axes with the origin at the middle of the block, on the middle surface: x to the right, z down
+  const cx=L+Wb/2,zl=Math.max(10,Math.min(40,body/2-6));
+  s+='<line class="gz" x1="'+cx+'" y1="'+mid+'" x2="'+(cx+44)+'" y2="'+mid+'" marker-end="url(#dimarr)"/><line class="gz" x1="'+cx+'" y1="'+mid+'" x2="'+cx+'" y2="'+(mid+zl)+'" marker-end="url(#dimarr)"/><circle class="origin" cx="'+cx+'" cy="'+mid+'" r="2.6"/>'+
+    '<text class="ax" x="'+(cx+49)+'" y="'+(mid+4)+'">x</text><text class="ax" x="'+(cx+6)+'" y="'+(mid+zl)+'">z</text>';
   // thickness dimensions on the left
   const d1=26,d2=64,tk=(h<1?h.toFixed(3):h.toFixed(2)).replace(/\.?0+$/,'');
   s+='<line class="ext" x1="'+(d1-6)+'" x2="'+L+'" y1="'+top+'" y2="'+top+'"/><line class="ext" x1="'+(d1-6)+'" x2="'+L+'" y1="'+(top+body)+'" y2="'+(top+body)+'"/>'+

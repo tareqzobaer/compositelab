@@ -85,6 +85,11 @@ function plyStress(r,pl,z){
   const e=r.response.slice(0,3).map((v,k)=>v+z*r.response[k+3]-pl.free[k]);
   return localStress(mv(pl.q,e),pl.a);
 }
+// Global (x-y) stress in a ply at height z: the ply stiffness acting on the mechanical strain.
+function plyStressXY(r,pl,z){
+  const e=r.response.slice(0,3).map((v,k)=>v+z*r.response[k+3]-pl.free[k]);
+  return mv(pl.q,e);
+}
 function strengthOf(p){return {Xt:p.Xt,Xc:p.Xc,Yt:p.Yt,Yc:p.Yc,S:p.S}}
 // Smallest factor on the mechanical loads that fails each ply surface. Stress is linear in the factor,
 // so stress(lam) = environmental + lam * mechanical, and every index is convex in lam.
