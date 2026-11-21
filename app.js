@@ -48,17 +48,57 @@ function stackMaterialFor(){
 }
 let profileFrame='global';
 const MAT_SHORT={graphite:'Gr',glass:'Gl',boron:'B'};
+// Per-ply thickness typed in the ply list, by expanded ply position. undefined = blank = use the code's :t or the default.
+// Values are kept as the typed strings so the list can show them back; 'bad' marks text the number field cannot read.
+let plyT=[];
+function clearPlyThickness(){plyT=[]}
+function defaultThickness(){const el=$('plyThickness');return el.value.trim()!==''&&el.validity.valid?Number(el.value):NaN}
+function applyPlyThickness(plies){
+  return plies.map((pl,i)=>{
+    if(plyT[i]===undefined)return pl;
+    const x=Number(plyT[i]);
+    if(!(x>=.001&&x<=50))throw new Error('Check the thickness of ply '+(i+1)+': enter a number from 0.001 to 50 mm, or clear the field to use the default.');
+    return {...pl,t:x};
+  });
+}
+function clearPlyEditor(){const h=$('plyEditor');h.innerHTML='';delete h.dataset.sig}
+// Rebuild the ply fields only when the plies change, so typing in a field never loses focus.
+function renderPlyEditor(plies){
+  const host=$('plyEditor'),sig=plies.map(pl=>pl.a+'|'+(pl.mat||'')).join(',');
+  if(host.dataset.sig!==sig){
+    host.dataset.sig=sig;
+    host.innerHTML='<div class="plyGrid">'+plies.map((pl,i)=>'<label class="plyCell">Ply '+(i+1)+' · '+pl.a+'°'+(pl.mat?' <small>'+MAT_SHORT[pl.mat]+'</small>':'')+'<input type="number" min=".001" max="50" step="any" data-ply="'+i+'"></label>').join('')+'</div><div class="plyBar"><button type="button" id="plyReset">Reset all to default</button></div>';
+  }
+  const dt=defaultThickness();
+  host.querySelectorAll('input[data-ply]').forEach((el,i)=>{
+    const custom=plyT[i]!==undefined;
+    el.placeholder=fmt(plies[i].t||dt,4);
+    el.classList.toggle('custom',custom);
+    el.setAttribute('aria-label','Thickness of ply '+(i+1)+' in mm');
+    if(document.activeElement!==el&&(!custom||Number.isFinite(Number(plyT[i]))))el.value=custom?plyT[i]:'';
+  });
+  $('plyReset').disabled=!plyT.some(v=>v!==undefined);
+}
+$('plyEditor').addEventListener('input',e=>{
+  const el=e.target;if(!el.dataset||el.dataset.ply===undefined)return;
+  plyT[+el.dataset.ply]=el.validity.badInput?'bad':el.value.trim()===''?undefined:el.value.trim();
+  updateStack();
+});
+$('plyEditor').addEventListener('click',e=>{if(e.target.id==='plyReset'){clearPlyThickness();updateStack()}});
 function updateStack(){try{
-  const plies=parseSequence($('sequence').value,$('symmetric').checked),t=number('plyThickness'),p=stackMaterialFor(),
+  let parsed;try{parsed=parseSequence($('sequence').value,$('symmetric').checked)}catch(e){clearPlyEditor();throw e}
+  plyT.length=Math.min(plyT.length,parsed.length);renderPlyEditor(parsed);
+  const t=number('plyThickness'),plies=applyPlyThickness(parsed),p=stackMaterialFor(),
     loads=['Nx','Ny','Nxy','Mx','My','Mxy'].map(number),
     env={dt:number('deltaT'),dc:number('deltaC'),a1:number('alpha1'),a2:number('alpha2'),b1:number('beta1'),b2:number('beta2')},
     r=laminateCalc(p,plies,t,loads,env),fpf=firstPlyFailure(p,plies,t,loads,env,$('twInteraction').value,+$('fpfCriterion').value),
     bmax=Math.max(...r.B.flat().map(Math.abs)),def=$('stackMaterial').value,key=pl=>pl.mat||def,
-    sym=plies.every((pl,i)=>{const o=plies[plies.length-1-i];return Math.abs(Math.sin((pl.a-o.a)*Math.PI/180))<1e-10&&key(pl)===key(o)}),
+    mirrorAM=plies.every((pl,i)=>{const o=plies[plies.length-1-i];return Math.abs(Math.sin((pl.a-o.a)*Math.PI/180))<1e-10&&key(pl)===key(o)}),
+    mirrorT=r.plies.every((pl,i)=>{const o=r.plies[r.plies.length-1-i];return Math.abs((pl.z1-pl.z0)-(o.z1-o.z0))<1e-9}),sym=mirrorAM&&mirrorT,
     abal=Math.max(Math.abs(r.A[0][2]),Math.abs(r.A[1][2])),g=fpf.governing,hybrid=plies.some(pl=>pl.mat);
   $('stackMetrics').innerHTML=metric('Expanded plies',plies.length,plies.some(pl=>pl.t&&pl.t!==t)?'mixed thickness':'equal thickness',true)+metric('Total thickness',fmt(r.h,3),'mm')+metric('Max |Bᵢⱼ|',fmt(bmax,3),'N')+metric('First-ply failure',Number.isFinite(g.lam)?fmt(g.lam,3)+'×':'—','load factor λ');
   $('abdMatrices').innerHTML=matrixHTML('[A]',r.A,'N/mm')+matrixHTML('[B]',r.B,'N')+matrixHTML('[D]',r.D,'N·mm');
-  $('stackInsight').textContent=(sym?'Symmetric stack: B vanishes (within numerical precision).':'Unsymmetric stack: extension–bending coupling may be present.')+' '+(abal<1e-7?'A₁₆ and A₂₆ vanish: no extensional normal–shear coupling.':'Nonzero A₁₆ or A₂₆ couples normal extension and shear.')+(hybrid?' Mixed materials: the ply stiffness differs by layer, so symmetry needs matching materials too.':'');
+  $('stackInsight').textContent=(sym?'Symmetric stack: B vanishes (within numerical precision).':'Unsymmetric stack: extension–bending coupling may be present.'+(mirrorAM?' The angles and materials mirror, but the ply thicknesses do not.':''))+' '+(abal<1e-7?'A₁₆ and A₂₆ vanish: no extensional normal–shear coupling.':'Nonzero A₁₆ or A₂₆ couples normal extension and shear.')+(hybrid?' Mixed materials: the ply stiffness differs by layer, so symmetry needs matching materials too.':'');
   sideFigure($('stackVisual'),plies,r,g.ply);
   $('symmetric').closest('label').classList.toggle('off',/^\s*\[/.test($('sequence').value));
   $('stackSummary').textContent='Expanded: ['+plies.map(pl=>pl.a+(pl.mat?MAT_SHORT[pl.mat]:'')+(pl.t&&pl.t!==t?':'+pl.t:'')).join('/')+'] · top z = '+fmt(-r.h/2,3)+' mm · bottom z = '+fmt(r.h/2,3)+' mm'+(g.ply>=0?' · outlined ply fails first':'');
@@ -77,7 +117,7 @@ function updateStack(){try{
   $('stackError').textContent='';
 }catch(e){$('stackError').textContent=e.message;clearWork('stackWork');['stackMetrics','abdMatrices','responseTable','plyResults','stackVisual','stackSummary','envResult','prof1','prof2','prof3','fpfTable'].forEach(id=>$(id).innerHTML='');$('fpfSummary').textContent='';$('stackInsight').textContent='Fix the inputs to get the laminate response.'}}
 function stackEnvPreset(){const p=presets[$('stackMaterial').value];if(p){['a1','a2','b1','b2'].forEach((k,i)=>$(['alpha1','alpha2','beta1','beta2'][i]).value=p[k])}updateStack()}
-$$('#laminate input').forEach(e=>e.oninput=updateStack);$('stackMaterial').onchange=stackEnvPreset;$('fpfCriterion').onchange=updateStack;$$('[data-stack]').forEach(b=>b.onclick=()=>{$('sequence').value=b.dataset.stack;if(b.dataset.t)$('plyThickness').value=b.dataset.t;if(b.dataset.mat){$('stackMaterial').value=b.dataset.mat;stackEnvPreset()}else updateStack()});$('stackSource').innerHTML=pageRef(9,22,'A, B, D equations · pp. 22–23')+'<br>'+pageRef(9,28,'Special laminates · pp. 28–29')+'<br>'+pageRef(9,38,'Environmental resultants · pp. 38–40');
+$$('#laminate input').forEach(e=>e.oninput=updateStack);$('stackMaterial').onchange=stackEnvPreset;$('fpfCriterion').onchange=updateStack;$$('[data-stack]').forEach(b=>b.onclick=()=>{$('sequence').value=b.dataset.stack;clearPlyThickness();if(b.dataset.t)$('plyThickness').value=b.dataset.t;if(b.dataset.mat){$('stackMaterial').value=b.dataset.mat;stackEnvPreset()}else updateStack()});$('stackSource').innerHTML=pageRef(9,22,'A, B, D equations · pp. 22–23')+'<br>'+pageRef(9,28,'Special laminates · pp. 28–29')+'<br>'+pageRef(9,38,'Environmental resultants · pp. 38–40');
 $('glossarySearch').oninput=renderGlossary;
 renderChapter();renderGlossary();updateMicro();updateAll();updateStack();showView(location.hash.slice(1)||'overview',false);window.addEventListener('hashchange',()=>showView(location.hash.slice(1),false));
 (()=>{const root=document.documentElement,sys=matchMedia('(prefers-color-scheme: dark)'),now=()=>root.dataset.theme||(sys.matches?'dark':'light');

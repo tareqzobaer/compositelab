@@ -327,3 +327,10 @@ button{min-height:38px}
 .legend i.sw{width:14px;height:10px;border-radius:2px}
 .legend i.tens{background:var(--tens)}
 .legend i.comp{background:var(--comp)}
+.plyEdit>.help{margin:0 0 12px}
+.plyGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px 12px;max-height:300px;overflow-y:auto;padding:6px;margin:-6px}
+.plyGrid label{display:flex;flex-direction:column;white-space:nowrap}
+.plyGrid label small{font-weight:400;color:var(--muted)}
+.plyGrid input::placeholder{color:var(--muted);opacity:.85}
+.plyGrid input.custom{border-color:var(--accent);background:var(--soft)}
+.plyBar{margin-top:14px}

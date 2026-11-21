@@ -6,7 +6,7 @@ function setLamina(mat,angle,s){loadPreset(mat);setv('angle',angle);setv('sx',s[
 const failSetup=s=>()=>{setv('twInteraction','mises');setLamina('graphite',60,s)};
 function setMicro(model,xi){$('microReset').onclick();setv('microModel',model);setv('xi',xi);updateMicro()}
 function setStack(seq,t,mat,env,loads){
-  setv('sequence',seq);setv('plyThickness',t);setv('deltaT',env.dt);setv('deltaC',env.dc);
+  clearPlyThickness();setv('sequence',seq);setv('plyThickness',t);setv('deltaT',env.dt);setv('deltaC',env.dc);
   ['Nx','Ny','Nxy','Mx','My','Mxy'].forEach((k,i)=>setv(k,loads[i]));
   setv('stackMaterial',mat);
   if(mat==='shared'){['alpha1','alpha2','beta1','beta2'].forEach((k,i)=>setv(k,env.ab[i]));updateStack()}else stackEnvPreset();
