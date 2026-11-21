@@ -57,19 +57,32 @@ function applyPlyThickness(plies){
   return plies.map((pl,i)=>{
     if(plyT[i]===undefined)return pl;
     const x=Number(plyT[i]);
-    if(!(x>=.001&&x<=50))throw new Error('Check the thickness of ply '+(i+1)+': enter a number from 0.001 to 50 mm, or clear the field to use the default.');
+    if(!validThickness(plyT[i]))throw new Error('Check the thickness of ply '+(i+1)+': enter a number from 0.001 to 50 mm, or clear the field to use the default.');
     return {...pl,t:x};
   });
 }
 function clearPlyEditor(){const h=$('plyEditor');h.innerHTML='';delete h.dataset.sig}
-// Rebuild the ply fields only when the plies change, so typing in a field never loses focus.
+// True when every ply has a partner at the mirrored position with the same angle (±180°) and material.
+function anglesMirror(plies){
+  const def=$('stackMaterial').value;
+  return plies.every((pl,i)=>{const o=plies[plies.length-1-i];return Math.abs(Math.sin((pl.a-o.a)*Math.PI/180))<1e-10&&(pl.mat||def)===(o.mat||def)});
+}
+const validThickness=v=>{const x=Number(v);return x>=.001&&x<=50};
+// plyCount and plyMirror are set on each render for the input handler: mirror edits only if the option is on and the stack mirrors.
+let plyCount=0,plyMirror=false;
+// Rebuild the ply table only when the plies change, so typing in a field never loses focus.
 function renderPlyEditor(plies){
   const host=$('plyEditor'),sig=plies.map(pl=>pl.a+'|'+(pl.mat||'')).join(',');
   if(host.dataset.sig!==sig){
     host.dataset.sig=sig;
-    host.innerHTML='<div class="plyGrid">'+plies.map((pl,i)=>'<label class="plyCell">Ply '+(i+1)+' · '+pl.a+'°'+(pl.mat?' <small>'+MAT_SHORT[pl.mat]+'</small>':'')+'<input type="number" min=".001" max="50" step="any" data-ply="'+i+'"></label>').join('')+'</div><div class="plyBar"><button type="button" id="plyReset">Reset all to default</button></div>';
+    host.innerHTML='<div class="tableWrap sticky plyScroll"><table class="plyTable"><thead><tr><th>PLY</th><th>ANGLE</th><th>THICKNESS (mm)</th></tr></thead><tbody>'+
+      plies.map((pl,i)=>'<tr><td class="plyNo">'+(i+1)+'</td><td>'+pl.a+'°'+(pl.mat?' <small>'+MAT_SHORT[pl.mat]+'</small>':'')+'</td><td><input type="number" min=".001" max="50" step="any" data-ply="'+i+'"></td></tr>').join('')+
+      '</tbody></table></div><div class="plyBar"><button type="button" id="plyReset">Reset all to default</button></div>';
   }
-  const dt=defaultThickness();
+  const dt=defaultThickness(),mirrors=anglesMirror(plies),want=$('mirrorThickness').checked;
+  plyCount=plies.length;plyMirror=want&&mirrors;
+  $('mirrorThickness').closest('label').classList.toggle('off',!mirrors);
+  $('mirrorNote').textContent=want&&!mirrors?'Not active: the angles or materials do not mirror about the midplane, so each edit stays on one ply.':'';
   host.querySelectorAll('input[data-ply]').forEach((el,i)=>{
     const custom=plyT[i]!==undefined;
     el.placeholder=fmt(plies[i].t||dt,4);
@@ -81,7 +94,10 @@ function renderPlyEditor(plies){
 }
 $('plyEditor').addEventListener('input',e=>{
   const el=e.target;if(!el.dataset||el.dataset.ply===undefined)return;
-  plyT[+el.dataset.ply]=el.validity.badInput?'bad':el.value.trim()===''?undefined:el.value.trim();
+  const i=+el.dataset.ply,j=plyCount-1-i,v=el.validity.badInput?'bad':el.value.trim()===''?undefined:el.value.trim();
+  plyT[i]=v;
+  // Copy only a blank or valid value, so a half-typed entry flags one ply rather than two.
+  if(plyMirror&&j!==i&&(v===undefined||validThickness(v)))plyT[j]=v;
   updateStack();
 });
 $('plyEditor').addEventListener('click',e=>{if(e.target.id==='plyReset'){clearPlyThickness();updateStack()}});
@@ -92,8 +108,7 @@ function updateStack(){try{
     loads=['Nx','Ny','Nxy','Mx','My','Mxy'].map(number),
     env={dt:number('deltaT'),dc:number('deltaC'),a1:number('alpha1'),a2:number('alpha2'),b1:number('beta1'),b2:number('beta2')},
     r=laminateCalc(p,plies,t,loads,env),fpf=firstPlyFailure(p,plies,t,loads,env,$('twInteraction').value,+$('fpfCriterion').value),
-    bmax=Math.max(...r.B.flat().map(Math.abs)),def=$('stackMaterial').value,key=pl=>pl.mat||def,
-    mirrorAM=plies.every((pl,i)=>{const o=plies[plies.length-1-i];return Math.abs(Math.sin((pl.a-o.a)*Math.PI/180))<1e-10&&key(pl)===key(o)}),
+    bmax=Math.max(...r.B.flat().map(Math.abs)),def=$('stackMaterial').value,mirrorAM=anglesMirror(plies),
     mirrorT=r.plies.every((pl,i)=>{const o=r.plies[r.plies.length-1-i];return Math.abs((pl.z1-pl.z0)-(o.z1-o.z0))<1e-9}),sym=mirrorAM&&mirrorT,
     abal=Math.max(Math.abs(r.A[0][2]),Math.abs(r.A[1][2])),g=fpf.governing,hybrid=plies.some(pl=>pl.mat);
   $('stackMetrics').innerHTML=metric('Expanded plies',plies.length,plies.some(pl=>pl.t&&pl.t!==t)?'mixed thickness':'equal thickness',true)+metric('Total thickness',fmt(r.h,3),'mm')+metric('Max |Bᵢⱼ|',fmt(bmax,3),'N')+metric('First-ply failure',Number.isFinite(g.lam)?fmt(g.lam,3)+'×':'—','load factor λ');
